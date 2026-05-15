@@ -1,0 +1,180 @@
+<!-- ══════════════════════════════════════════════════════════════════════════
+     mecamate.urdf  (extrait ros2_control)
+     À inclure dans ton URDF complet via <xacro:include>
+     ══════════════════════════════════════════════════════════════════════════ -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ── Paramètres modifiables depuis le launch file ────────────────────── -->
+  <xacro:arg name="serial_port"   default="/dev/myserial"/>
+  <xacro:arg name="car_type"      default="1"/>
+  <xacro:arg name="wheel_radius"  default="0.045"/>
+  <xacro:arg name="wheel_sep_x"   default="0.14"/>
+  <xacro:arg name="wheel_sep_y"   default="0.12"/>
+  <xacro:arg name="ticks_per_rev" default="1625"/>
+
+  <ros2_control name="MecamateSystem" type="system">
+
+    <!-- ── Hardware plugin ─────────────────────────────────────────────── -->
+    <hardware>
+      <plugin>mecamate_ros2_control/MecamateHardware</plugin>
+
+      <!-- Ces paramètres sont lus dans MecamateHardware::on_init() -->
+      <param name="serial_port">$(arg serial_port)</param>
+      <param name="car_type">$(arg car_type)</param>
+      <param name="cmd_delay">0.002</param>
+      <param name="debug">false</param>
+      <param name="ticks_per_rev">$(arg ticks_per_rev)</param>
+      <param name="wheel_radius">$(arg wheel_radius)</param>
+      <param name="wheel_sep_x">$(arg wheel_sep_x)</param>
+      <param name="wheel_sep_y">$(arg wheel_sep_y)</param>
+    </hardware>
+
+    <!-- ── Roues : FL FR RL RR ─────────────────────────────────────────── -->
+    <!-- L'ordre des joints doit correspondre à MecamateHardware (FL=0, …) -->
+
+    <joint name="wheel_fl_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max"> 10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wheel_fr_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max"> 10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wheel_rl_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max"> 10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wheel_rr_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max"> 10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- ── (Optionnel) Bras 6-DOF ───────────────────────────────────────── -->
+    <!--
+    <joint name="arm_joint_1">
+      <command_interface name="position">
+        <param name="min">0</param>
+        <param name="max">180</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    ... (répéter pour arm_joint_2 à arm_joint_6) ...
+    -->
+
+  </ros2_control>
+
+</robot>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     mecamate_launch.py  — Launch file complet
+     ══════════════════════════════════════════════════════════════════════════ -->
+<!--
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description():
+    pkg = FindPackageShare("mecamate_bringup")
+
+    # ── Arguments ──────────────────────────────────────────────────────────
+    serial_port_arg = DeclareLaunchArgument(
+        "serial_port", default_value="/dev/myserial",
+        description="Serial port for Mecamate")
+
+    use_ros2_control_arg = DeclareLaunchArgument(
+        "use_ros2_control", default_value="true",
+        description="Use ros2_control hardware interface (vs standalone node)")
+
+    # ── URDF / robot_description ────────────────────────────────────────────
+    robot_description = Command([
+        FindExecutable(name="xacro"), " ",
+        PathJoinSubstitution([pkg, "urdf", "mecamate.urdf.xacro"]),
+        " serial_port:=", LaunchConfiguration("serial_port"),
+    ])
+
+    robot_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="screen",
+        parameters=[{"robot_description": robot_description}],
+    )
+
+    # ── ros2_control path ───────────────────────────────────────────────────
+    controller_manager = Node(
+        package="controller_manager",
+        executable="ros2_control_node",
+        parameters=[
+            {"robot_description": robot_description},
+            PathJoinSubstitution([pkg, "config", "mecamate_controllers.yaml"]),
+        ],
+        output="screen",
+    )
+
+    spawn_jsb = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+    )
+
+    spawn_mecanum = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["mecanum_drive_controller", "--controller-manager", "/controller_manager"],
+    )
+
+    # Spawn mecanum only after joint_state_broadcaster is running
+    delay_mecanum = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=spawn_jsb,
+            on_exit=[spawn_mecanum],
+        )
+    )
+
+    # ── Standalone mecamate_node path (sans ros2_control) ──────────────────
+    mecamate_node = Node(
+        package="mecamate_lib",
+        executable="mecamate_node",
+        output="screen",
+        parameters=[{
+            "serial_port":    LaunchConfiguration("serial_port"),
+            "car_type":       1,
+            "publish_rate":   50.0,
+            "publish_tf":     True,
+            "cmd_vel_timeout": 0.5,
+        }],
+        condition=UnlessCondition(LaunchConfiguration("use_ros2_control")),
+    )
+
+    return LaunchDescription([
+        serial_port_arg,
+        use_ros2_control_arg,
+        robot_state_publisher,
+        controller_manager,
+        spawn_jsb,
+        delay_mecanum,
+        mecamate_node,
+    ])
+-->
