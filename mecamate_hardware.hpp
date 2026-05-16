@@ -1,3 +1,13 @@
+/*
+** mecamate_hardware.hpp for mecamate_lib [SSH: ROSMASTER-YAHBOOM] in /home/rosmaster/mecamate_lib
+**
+** Made by dirennoukpo
+** Login   <diren.noukpo@epitech.eu>
+**
+** Started on  Sat May 16 07:41:02 2026 dirennoukpo
+** Last update Sun May 16 07:41:04 2026 dirennoukpo
+*/
+
 // mecamate_hardware.hpp
 // ros2_control SystemInterface for Mecamate (mecanum / differential)
 //
